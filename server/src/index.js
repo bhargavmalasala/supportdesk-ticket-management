@@ -1,0 +1,8 @@
+import 'dotenv/config';import express from 'express';import cors from 'cors';import http from 'node:http';import {Server} from 'socket.io';import authRoutes from './routes/auth.js';import ticketRoutes from './routes/tickets.js';import dashboardRoutes from './routes/dashboard.js';import {initDb} from './db.js';import jwt from 'jsonwebtoken';
+const app=express(),server=http.createServer(app);app.use(cors({origin:process.env.CLIENT_URL||'http://localhost:5173'}));app.use(express.json({limit:'1mb'}));
+const io=new Server(server,{cors:{origin:process.env.CLIENT_URL||'http://localhost:5173'}});app.set('io',io);
+io.use((socket,next)=>{try{const token=socket.handshake.auth?.token;if(!token)return next(new Error('Authentication required'));socket.user=jwt.verify(token,process.env.JWT_SECRET);next();}catch{next(new Error('Invalid session'));}});
+io.on('connection',socket=>{socket.join(`user:${socket.user.id}`);socket.on('ticket:watch',id=>{if(Number.isInteger(Number(id)))socket.join(`ticket:${Number(id)}`);});});
+app.get('/api/health',(req,res)=>res.json({status:'ok',service:'SupportDesk API'}));app.use('/api/auth',authRoutes);app.use('/api/tickets',ticketRoutes);app.use('/api/dashboard',dashboardRoutes);
+app.use((err,req,res,next)=>{console.error(err);if(res.headersSent)return next(err);res.status(err.status||500).json({error:process.env.NODE_ENV==='production'?'Something went wrong':err.message||'Internal server error'});});
+const port=process.env.PORT||4000;initDb().then(()=>server.listen(port,()=>console.log(`SupportDesk API running on http://localhost:${port}`))).catch(e=>{console.error('Database initialization failed:',e);process.exit(1)});
